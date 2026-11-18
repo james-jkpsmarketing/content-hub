@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Johnny K's Content Hub</title>
+<meta name="description" content="Johnny K's Powersports 2027 video content catalog, campaigns and production dashboard.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#/">
+      <span class="brand-mark">JK</span>
+      <span class="brand-text"><strong id="siteTitle">Johnny K's Content Hub</strong><small id="siteSub">2027 Video Content Production</small></span>
+    </a>
+    <button class="menu-btn" id="menuBtn" aria-label="Menu" aria-expanded="false">☰</button>
+    <nav class="nav" id="nav">
+      <a href="#/" data-nav="ideas">Idea Catalog</a>
+      <a href="#/picks" data-nav="picks">My Picks <span class="pill-count" id="picksCount">0</span></a>
+      <a href="#/plan" data-nav="plan">Filming Planner</a>
+      <a href="#/campaigns" data-nav="campaigns">2027 Campaigns</a>
+      <a href="#/dashboard" data-nav="dashboard">Dashboard</a>
+      <a href="#/stores" data-nav="stores">Stores &amp; Guide</a>
+    </nav>
+  </div>
+</header>
+
+<main id="app" class="app" tabindex="-1">
+  <div class="loading">Loading the content library…</div>
+</main>
+
+<footer class="footer">
+  <span>Johnny K's Powersports • Niles • Elyria • Lodi • Bedford Heights</span>
+  <span id="dataStamp"></span>
+</footer>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <button class="modal-x" id="modalClose" aria-label="Close">×</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="js/config.js"></script>
+<script src="data/content.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

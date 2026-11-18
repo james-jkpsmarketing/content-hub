@@ -5,7 +5,7 @@
 window.JKPS_CONFIG = {
   // Where "I want to record this" requests are emailed. Put your work email
   // between the quotes, e.g. "james@johnnykspowersports.com"
-  contactEmail: "",
+  contactEmail: "jpotts@johnnyks.com",
 
   // Your name, shown to talent ("Send your pick to ___")
   contactName: "James",

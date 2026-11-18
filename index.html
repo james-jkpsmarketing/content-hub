@@ -19,12 +19,14 @@
     </a>
     <button class="menu-btn" id="menuBtn" aria-label="Menu" aria-expanded="false">☰</button>
     <nav class="nav" id="nav">
-      <a href="#/" data-nav="ideas">Idea Catalog</a>
+      <a href="#/" data-nav="ideas">Catalog</a>
       <a href="#/picks" data-nav="picks">My Picks <span class="pill-count" id="picksCount">0</span></a>
-      <a href="#/plan" data-nav="plan">Filming Planner</a>
-      <a href="#/campaigns" data-nav="campaigns">2027 Campaigns</a>
+      <a href="#/plan" data-nav="plan">Planner</a>
+      <a href="#/campaigns" data-nav="campaigns">Campaigns</a>
       <a href="#/dashboard" data-nav="dashboard">Dashboard</a>
       <a href="#/stores" data-nav="stores">Stores &amp; Guide</a>
+      <a href="#/brain" data-nav="brain" class="owner-only" hidden>🧠 Brain Dump</a>
+      <button class="nav-cta" id="ideaBtnNav" type="button">💡 I have an idea</button>
     </nav>
   </div>
 </header>
@@ -34,8 +36,8 @@
 </main>
 
 <footer class="footer">
-  <span>Johnny K's Powersports • Niles • Elyria • Lodi • Bedford Heights</span>
-  <span id="dataStamp"></span>
+  <span>Johnny K's Powersports • Niles • Elyria • Lodi • Bedford</span>
+  <span><span id="dataStamp"></span> • <a href="#/owner" id="ownerLink">Owner</a></span>
 </footer>
 
 <div class="modal" id="modal" hidden>
@@ -48,6 +50,7 @@
 
 <script src="js/config.js"></script>
 <script src="data/content.js"></script>
+<script src="js/suggestions.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

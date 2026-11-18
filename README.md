@@ -12,7 +12,8 @@ It runs on **GitHub Pages**, which is free. There's no server, database or month
 |---|---|---|
 | `index.html` | The website | No |
 | `update.html` | Turns your Excel file into site data | No (you *use* it) |
-| `js/config.js` | Your email + site title | **Yes, once** |
+| `js/config.js` | Your email, owner passcode line, site title | **Yes, once** |
+| `js/suggestions.js` | Suggested showroom for each company-wide idea | Only if you want to change a suggestion |
 | `data/content.js` | The site's data, made from your Excel file | You replace it to update |
 | `css/`, `js/app.js`, `js/extract.js`, `vendor/` | The site's code | No |
 
@@ -70,10 +71,26 @@ That's the link you send to managers and talent.
 
 ---
 
+## Owner-only sections (Cardboard prompts + Brain Dump)
+
+1. Open the site and click **Owner** at the very bottom of the page.
+2. Create a passcode. The site shows you one line (`ownerPasscodeHash: "…",`).
+3. In GitHub, edit `js/config.js`, paste that line right under the `contactEmail` line, and commit.
+4. From then on, click **Owner** and enter your passcode on any device. You'll see the Cardboard prompt on every idea and the **🧠 Brain Dump** tab.
+
+This is a passcode screen, not bank-level security. It hides the sections from everyone else, and the passcode itself is never stored on GitHub (only a scrambled version is). **Brain Dump notes are saved only in the browser you type them in.** They never go to GitHub. Use **Back up** to save a file and **Restore** to load it on another computer.
+
+## Suggested showrooms
+
+Store ideas suggest their own store. Each company-wide idea has a suggested store and a reason in `js/suggestions.js`. To override a suggestion from Excel, add a column named **Suggested Showroom** to IDEA LIBRARY. Whatever you type there wins.
+
+"Bedford Heights" in the workbook shows as **Bedford** on the site, and `#BedfordHeights` becomes `#BedfordOhio`. Your workbook doesn't need to change.
+
 ## Sharing tips
 
 - **Send talent straight to their store:** open the catalog, click their showroom (and department, if you want), then **Copy link to this view**.
 - **Send one idea:** open it and click **Copy link**.
+- **I have an idea** (top of every page) lets anyone email you a content idea.
 - Requests arrive in your inbox with the subject *"Video request: V-XXX-000 – Title (Name)"*.
 - "My Picks" and the Filming Planner are saved in each person's own browser. Nobody else sees them.
 

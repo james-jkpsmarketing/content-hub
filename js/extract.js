@@ -156,9 +156,20 @@
       }
     }
 
+    // Store renames for the website (workbook stays as-is)
+    data = renameDeep(data);
+
     data.counts = { ideas: data.ideas.length, campaigns: data.campaigns.length,
       campaignLibrary: data.campaignLibrary.length, placements: data.placements.length };
     return { data: data, warnings: warnings };
+  }
+
+  var RENAMES = [[/#BedfordHeights\b/g, "#BedfordOhio"], [/Bedford Heights/g, "Bedford"]];
+  function renameDeep(v) {
+    if (typeof v === "string") { RENAMES.forEach(function (r) { v = v.replace(r[0], r[1]); }); return v; }
+    if (Array.isArray(v)) return v.map(renameDeep);
+    if (v && typeof v === "object") { var o = {}; Object.keys(v).forEach(function (k) { o[renameDeep(k)] = renameDeep(v[k]); }); return o; }
+    return v;
   }
 
   function toScript(data) {

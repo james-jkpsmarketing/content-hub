@@ -28,7 +28,7 @@
 
   /* ---------------- data prep ---------------- */
   var S = D.settings || {};
-  var STORES = (S.lists && S.lists.Showrooms ? S.lists.Showrooms : ["Niles", "Elyria", "Lodi", "Bedford Heights", "Universal"]).filter(function (s) { return s !== "Universal"; });
+  var STORES = (S.lists && S.lists.Showrooms ? S.lists.Showrooms : ["Niles", "Elyria", "Lodi", "Bedford", "Universal"]).filter(function (s) { return s !== "Universal"; });
   var ideas = D.ideas;
   var byId = {}; ideas.forEach(function (i) { byId[i.ID] = i; });
   var PROD_ORDER = (S.lists && S.lists.ProdStatus) || ["Idea", "Approved", "Talent Scheduled", "Filmed", "Editing", "In Review", "Ready to Post", "Posted", "On Hold", "Dropped"];
@@ -48,6 +48,54 @@
     return i.Scope === "Universal" && (i["Compatible Showrooms"] || "").indexOf(s) >= 0;
   }
   function storeLabel(i) { return i.Scope === "Universal" ? "Company-wide" : i.Showroom; }
+  var SUGGEST = window.JKPS_SUGGEST || {};
+  function suggested(i) {
+    if (i["Suggested Showroom"]) return i["Suggested Showroom"];
+    if (i.Scope !== "Universal") return i.Showroom;
+    if (SUGGEST[i.ID]) return SUGGEST[i.ID][0];
+    return (i["Compatible Showrooms"] || "").split(/,\s*/)[0] || "Any store";
+  }
+  function suggestWhy(i) { return i.Scope === "Universal" && !i["Suggested Showroom"] && SUGGEST[i.ID] ? SUGGEST[i.ID][1] : ""; }
+
+  /* ---------------- owner mode (passcode screen, not real security) ---------------- */
+  function sha256(str) {
+    function rr(n, x) { return (x >>> n) | (x << (32 - n)); }
+    var K = [], H = [], p = 0, c = 2;
+    while (p < 64) { var ok = true; for (var d = 2; d * d <= c; d++) if (c % d === 0) { ok = false; break; } if (ok) { if (p < 8) H[p] = (Math.pow(c, 1 / 2) * 4294967296) | 0; K[p++] = (Math.pow(c, 1 / 3) * 4294967296) | 0; } c++; }
+    var bytes = unescape(encodeURIComponent(str)), l = bytes.length, w = [], i;
+    for (i = 0; i < l; i++) w[i >> 2] |= bytes.charCodeAt(i) << (24 - (i % 4) * 8);
+    w[l >> 2] |= 0x80 << (24 - (l % 4) * 8); w[(((l + 8) >> 6) << 4) + 15] = l * 8;
+    for (var j = 0; j < w.length; j += 16) {
+      var a = H.slice(0), W = [];
+      for (i = 0; i < 64; i++) {
+        if (i < 16) W[i] = w[j + i] | 0;
+        else { var s0 = rr(7, W[i - 15]) ^ rr(18, W[i - 15]) ^ (W[i - 15] >>> 3), s1 = rr(17, W[i - 2]) ^ rr(19, W[i - 2]) ^ (W[i - 2] >>> 10); W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0; }
+        var t1 = (a[7] + (rr(6, a[4]) ^ rr(11, a[4]) ^ rr(25, a[4])) + ((a[4] & a[5]) ^ (~a[4] & a[6])) + K[i] + W[i]) | 0;
+        var t2 = ((rr(2, a[0]) ^ rr(13, a[0]) ^ rr(22, a[0])) + ((a[0] & a[1]) ^ (a[0] & a[2]) ^ (a[1] & a[2]))) | 0;
+        a = [(t1 + t2) | 0].concat(a.slice(0, 7)); a[4] = (a[4] + t1) | 0;
+      }
+      for (i = 0; i < 8; i++) H[i] = (H[i] + a[i]) | 0;
+    }
+    return H.map(function (h) { return ("00000000" + (h >>> 0).toString(16)).slice(-8); }).join("");
+  }
+  function hashPass(p) { return sha256("jkps-owner:" + p); }
+  function isOwner() { var t = store.get("owner", ""); return !!t && (C.ownerPasscodeHash ? t === C.ownerPasscodeHash : t.indexOf("pending:") === 0); }
+  function applyOwner() { $$(".owner-only").forEach(function (el) { el.hidden = !isOwner(); }); var ol = $("#ownerLink"); if (ol) ol.textContent = isOwner() ? "Owner ✓" : "Owner"; }
+
+  /* ---------------- email helper ---------------- */
+  function sendEmail(subject, body, afterHtml) {
+    if (!C.contactEmail) { copyText("Subject: " + subject + "\n\n" + body, "Copied. Paste it into an email or text"); return; }
+    var href = "mailto:" + encodeURIComponent(C.contactEmail) + "?subject=" + encodeURIComponent(subject) + (C.ccEmail ? "&cc=" + encodeURIComponent(C.ccEmail) : "") + "&body=" + encodeURIComponent(body);
+    window.location.href = href;
+    setTimeout(function () {
+      $("#modalBody").innerHTML = '<div class="eyebrow">Almost done</div><h2>Check your email app</h2><p>' + (afterHtml || "Your message") + ' should be open in a new email. Press <strong>Send</strong>. If nothing opened, copy it instead and send it to ' + esc(C.contactEmail) + '.</p><button class="btn" id="mailCopy">Copy text</button>';
+      $("#mailCopy").onclick = function () { copyText("To: " + C.contactEmail + "\nSubject: " + subject + "\n\n" + body, "Copied"); };
+    }, 400);
+  }
+  function noEmailNote() {
+    return C.contactEmail ? '<p class="muted small">This opens your email app with everything filled in for ' + esc(C.contactName || "the marketing team") + '. Just press Send.</p>'
+      : '<p class="callout small">No contact email is set up for this site yet. Use “Copy text” and send it to ' + esc(C.contactName || "the marketing team") + ' directly.</p>';
+  }
   function storeInfo(name) { return (S.stores || []).filter(function (s) { return s.Showroom === name; })[0]; }
 
   /* ---------------- picks (shortlist) ---------------- */
@@ -74,43 +122,65 @@
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !modal.hidden) closeModal(); });
 
   /* ---------------- request by email ---------------- */
+  var STORE_OPTS = ["", "Niles", "Elyria", "Lodi", "Bedford"];
+  function storeSelect(name, sel) { return '<select class="f" name="' + name + '">' + STORE_OPTS.map(function (s) { return '<option' + (sel === s ? " selected" : "") + ' value="' + esc(s) + '">' + (s || "Choose…") + "</option>"; }).join("") + "</select>"; }
   function requestModal(ids) {
     var list = ids.map(function (id) { return byId[id]; }).filter(Boolean);
     if (!list.length) return;
     var me = store.get("me", {});
-    var opts = ["", "Niles", "Elyria", "Lodi", "Bedford Heights"].map(function (s) { return '<option' + (me.store === s ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("");
+    var cam = list.length === 1 ? (store.get("cam", {})[list[0].ID] || "") : "";
     openModal(
       '<div class="eyebrow">Request to record</div><h2 id="modalTitle">' + (list.length === 1 ? esc(list[0].Title) : list.length + " ideas") + '</h2>' +
       '<p class="muted small">' + list.map(function (i) { return esc(i.ID); }).join(", ") + '</p>' +
       '<form class="form-grid" id="reqForm">' +
       '<label>Your name<input class="f" name="name" required value="' + esc(me.name || "") + '"></label>' +
+      '<label>Who\'s on camera<input class="f" name="cam" placeholder="Names of everyone who\'ll be in the video" value="' + esc(cam || me.name || "") + '"></label>' +
       '<label>Your role / department<input class="f" name="role" placeholder="e.g. Parts counter, Service tech" value="' + esc(me.role || "") + '"></label>' +
-      '<label>Your showroom<select class="f" name="store">' + opts + '</select></label>' +
+      '<label>Your showroom' + storeSelect("store", me.store) + '</label>' +
       '<label>Days / times that work for filming<input class="f" name="when" placeholder="e.g. Tue or Thu mornings in March"></label>' +
-      '<label>Anything else? (optional)<textarea class="f" name="notes" rows="3" placeholder="Ideas for a twist, a machine you want to use, etc."></textarea></label>' +
-      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn btn-primary" type="submit">✉ Open email to send</button><button class="btn" type="button" id="reqCopy">Copy request text</button></div>' +
-      (C.contactEmail ? '<p class="muted small">This opens your email app with everything filled in for ' + esc(C.contactName || "the marketing team") + '. Just press Send.</p>'
-        : '<p class="callout small">No contact email is set up for this site yet. Use “Copy request text” and send it to ' + esc(C.contactName || "the marketing team") + ' directly.</p>') +
-      '</form>');
+      '<label>Anything else? (optional)<textarea class="f" name="notes" rows="3" placeholder="A twist on the idea, a machine you want to use, etc."></textarea></label>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn btn-primary" type="submit">✉ ' + (C.contactEmail ? "Open email to send" : "Copy text") + '</button>' + (C.contactEmail ? '<button class="btn" type="button" id="reqCopy">Copy text</button>' : "") + '</div>' +
+      noEmailNote() + '</form>');
     function build() {
       var f = $("#reqForm"), v = function (n) { return f.elements[n].value.trim(); };
       store.set("me", { name: v("name"), role: v("role"), store: v("store") });
       var subject = "Video request: " + (list.length === 1 ? list[0].ID + " – " + list[0].Title : list.length + " ideas") + (v("name") ? " (" + v("name") + ")" : "");
       var body = "Hi " + (C.contactName || "") + ",\n\nI'd like to record " + (list.length === 1 ? "this video idea" : "these video ideas") + ":\n\n" +
-        list.map(function (i) { return "• " + i.ID + " – " + i.Title + " (" + storeLabel(i) + ", " + i.Department + ")\n  " + location.href.split("#")[0] + "#/idea/" + i.ID; }).join("\n") +
-        "\n\nName: " + v("name") + "\nRole: " + v("role") + "\nShowroom: " + v("store") + "\nAvailability: " + v("when") + (v("notes") ? "\nNotes: " + v("notes") : "") + "\n\nThanks!";
+        list.map(function (i) { return "• " + i.ID + " – " + i.Title + " (suggested showroom: " + suggested(i) + ", " + i.Department + ")\n  " + location.href.split("#")[0] + "#/idea/" + i.ID; }).join("\n") +
+        "\n\nName: " + v("name") + "\nOn camera: " + v("cam") + "\nRole: " + v("role") + "\nShowroom: " + v("store") + "\nAvailability: " + v("when") + (v("notes") ? "\nNotes: " + v("notes") : "") + "\n\nThanks!";
       return { subject: subject, body: body };
     }
-    $("#reqForm").onsubmit = function (e) {
-      e.preventDefault();
-      var m = build();
-      if (!C.contactEmail) { copyText("Subject: " + m.subject + "\n\n" + m.body, "Request copied — paste it into an email or text"); return; }
-      var href = "mailto:" + encodeURIComponent(C.contactEmail) + "?subject=" + encodeURIComponent(m.subject) + (C.ccEmail ? "&cc=" + encodeURIComponent(C.ccEmail) : "") + "&body=" + encodeURIComponent(m.body);
-      window.location.href = href;
-      setTimeout(function () { $("#modalBody").innerHTML = '<div class="eyebrow">Almost done</div><h2>Check your email app</h2><p>Your request should be open in a new email. Press <strong>Send</strong>. If nothing opened, copy the request instead and send it to ' + esc(C.contactEmail) + '.</p><button class="btn" id="reqCopy2">Copy request text</button>'; $("#reqCopy2").onclick = function () { copyText("To: " + C.contactEmail + "\nSubject: " + m.subject + "\n\n" + m.body, "Request copied"); }; }, 400);
-    };
-    $("#reqCopy").onclick = function () { var m = build(); copyText((C.contactEmail ? "To: " + C.contactEmail + "\n" : "") + "Subject: " + m.subject + "\n\n" + m.body, "Request copied"); };
+    $("#reqForm").onsubmit = function (e) { e.preventDefault(); var m = build(); sendEmail(m.subject, m.body, "Your request"); };
+    var rc = $("#reqCopy"); if (rc) rc.onclick = function () { var m = build(); copyText("To: " + C.contactEmail + "\nSubject: " + m.subject + "\n\n" + m.body, "Request copied"); };
   }
+
+  /* ---------------- "I have an idea" ---------------- */
+  function ideaModal() {
+    var me = store.get("me", {});
+    var depts = ["", "Sales", "Parts", "Service", "Marketing", "Other"], seasons = ["Any time", "Spring", "Summer", "Fall", "Winter", "Holiday"];
+    function opts(a) { return a.map(function (s) { return '<option value="' + esc(s) + '">' + (s || "Choose…") + "</option>"; }).join(""); }
+    openModal('<div class="eyebrow">Share your idea</div><h2 id="modalTitle">I have an idea</h2><p class="muted small" style="margin-top:4px">Got a video you\'d love to make? Tell ' + esc(C.contactName || "Marketing") + ' about it. Rough ideas are welcome.</p>' +
+      '<form class="form-grid" id="ideaForm">' +
+      '<label>Your name<input class="f" name="name" required value="' + esc(me.name || "") + '"></label>' +
+      '<div class="grid-2" style="gap:10px"><label>Your showroom' + storeSelect("store", me.store) + '</label><label>Department<select class="f" name="dept">' + opts(depts) + '</select></label></div>' +
+      '<label>Idea title<input class="f" name="title" required placeholder="e.g. Guess the part by the sound"></label>' +
+      '<label>What\'s the idea?<textarea class="f" name="idea" rows="4" required placeholder="What happens in the video? What would make people stop scrolling?"></textarea></label>' +
+      '<label>Who would be on camera?<input class="f" name="cam" placeholder="You, a coworker, a customer…"></label>' +
+      '<div class="grid-2" style="gap:10px"><label>Machine / product (optional)<input class="f" name="machine"></label><label>Best time of year<select class="f" name="season">' + opts(seasons) + '</select></label></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn btn-primary" type="submit">✉ ' + (C.contactEmail ? "Send my idea" : "Copy text") + '</button></div>' + noEmailNote() + '</form>');
+    $("#ideaForm").onsubmit = function (e) {
+      e.preventDefault();
+      var f = this, v = function (n) { return f.elements[n].value.trim(); };
+      store.set("me", { name: v("name"), role: me.role || "", store: v("store") });
+      var subject = "Content idea: " + v("title") + " (" + v("name") + ")";
+      var body = "Hi " + (C.contactName || "") + ",\n\nI have a content idea:\n\nTitle: " + v("title") + "\n\n" + v("idea") +
+        "\n\nOn camera: " + v("cam") + "\nMachine / product: " + v("machine") + "\nBest time of year: " + v("season") +
+        "\n\nFrom: " + v("name") + "\nShowroom: " + v("store") + "\nDepartment: " + v("dept") + "\n\nThanks!";
+      sendEmail(subject, body, "Your idea");
+    };
+  }
+  $("#ideaBtnNav").onclick = ideaModal;
+  document.addEventListener("click", function (e) { if (e.target.closest("[data-idea-btn]")) { e.preventDefault(); ideaModal(); } });
 
   /* ---------------- router ---------------- */
   function parseHash() {
@@ -123,7 +193,7 @@
   function route() {
     var r = parseHash(), p = r.path[0] || "";
     $("#nav").classList.remove("open");
-    var views = { "": viewIdeas, ideas: viewIdeas, idea: viewIdea, picks: viewPicks, plan: viewPlan, campaigns: viewCampaigns, dashboard: viewDashboard, stores: viewStores, print: viewPrint };
+    var views = { "": viewIdeas, ideas: viewIdeas, idea: viewIdea, picks: viewPicks, plan: viewPlan, campaigns: viewCampaigns, dashboard: viewDashboard, stores: viewStores, print: viewPrint, owner: viewOwner, brain: viewBrain };
     (views[p] || viewIdeas)(r);
     if (!route._keepScroll) window.scrollTo(0, 0);
     route._keepScroll = false;
@@ -133,12 +203,11 @@
 
   /* ================= IDEA CATALOG ================= */
   var FILTERS = [
-    ["dept", "Department", "Department"], ["pillar", "Content Pillar", "Content type"], ["season", "Season", "Season"],
-    ["diff", "Difficulty", "Difficulty"], ["prio", "Priority", "Priority"], ["talent", "Talent", "Who's on camera"], ["area", "Suggested Showroom Area", "Filming area"]
+    ["dept", "Department", "Department"], ["pillar", "Content Pillar", "Content type"], ["season", "Season", "Season"]
   ];
   function optionList(field) {
     var vals = uniq(ideas.map(function (i) { return i[field]; }));
-    var order = { Difficulty: ["Easy", "Medium", "Advanced"], Priority: ["High", "Medium", "Low"], Season: (S.lists && S.lists.Seasons) || [] }[field];
+    var order = { Season: (S.lists && S.lists.Seasons) || [] }[field];
     if (order) vals.sort(function (a, b) { var x = order.indexOf(a), y = order.indexOf(b); return (x < 0 ? 99 : x) - (y < 0 ? 99 : y); });
     else vals.sort();
     return vals;
@@ -146,12 +215,12 @@
   function ideaCard(i) {
     var a = availability(i);
     return '<a class="idea card" href="#/idea/' + esc(i.ID) + '">' +
-      '<div class="idea-top"><span class="idea-id">' + esc(i.ID) + '</span><span class="badge ' + a.cls + '">' + esc(a.label) + '</span></div>' +
+      '<div class="idea-top"><span class="idea-id">' + esc(i.ID) + ' · ' + esc(i.Department) + '</span>' +
+      (a.key === "open" ? "" : '<span class="badge ' + a.cls + '">' + esc(a.label) + '</span>') + '</div>' +
       '<h3>' + esc(i.Title) + '</h3>' +
-      '<div class="idea-meta"><span class="chip chip-dark">' + esc(storeLabel(i)) + '</span><span class="chip chip-red">' + esc(i.Department) + '</span><span class="chip">' + esc(i["Content Pillar"]) + '</span></div>' +
       '<p>' + esc(i["The Idea"]) + '</p>' +
-      '<div class="idea-foot"><span>' + esc(i.Difficulty) + ' • ~' + esc(i["Est. Film Min"]) + ' min to film • ' + esc(i.Talent) + '</span>' +
-      '<button class="pick-btn" data-pick="' + esc(i.ID) + '">' + (picks.indexOf(i.ID) >= 0 ? "★ Picked" : "☆ Pick") + '</button></div></a>';
+      '<div class="idea-foot"><span>📍 ' + esc(suggested(i)) + ' &nbsp;·&nbsp; ~' + esc(i["Est. Film Min"]) + ' min</span>' +
+      '<button class="pick-btn" data-pick="' + esc(i.ID) + '" aria-label="Save to My Picks">' + (picks.indexOf(i.ID) >= 0 ? "★ Picked" : "☆ Pick") + '</button></div></a>';
   }
   function filterIdeas(q) {
     var term = (q.q || "").toLowerCase().trim();
@@ -169,10 +238,6 @@
       }
       return true;
     });
-    var pr = { High: 0, Medium: 1, Low: 2 }, df = { Easy: 0, Medium: 1, Advanced: 2 };
-    if (q.sort === "prio") list.sort(function (a, b) { return (pr[a.Priority] - pr[b.Priority]) || a.ID.localeCompare(b.ID); });
-    else if (q.sort === "easy") list.sort(function (a, b) { return (df[a.Difficulty] - df[b.Difficulty]) || (num(a["Est. Film Min"]) - num(b["Est. Film Min"])); });
-    else if (q.sort === "short") list.sort(function (a, b) { return num(a["Est. Film Min"]) - num(b["Est. Film Min"]); });
     return list;
   }
   function qs(q) { var s = Object.keys(q).filter(function (k) { return q[k]; }).map(function (k) { return encodeURIComponent(k) + "=" + encodeURIComponent(q[k]); }).join("&"); return s ? "?" + s : ""; }
@@ -180,30 +245,23 @@
   function viewIdeas(r) {
     setActive("ideas");
     var q = r.q;
-    var open = ideas.filter(function (i) { return availability(i).key === "open"; }).length;
-    var ps = ideas.filter(function (i) { return i.Department === "Parts" || i.Department === "Service"; }).length;
     var storeTabs = ["", "Company-wide"].concat(STORES).map(function (s) {
       return '<button class="store-tab' + ((q.store || "") === s ? " active" : "") + '" data-store="' + esc(s) + '">' + (s || "All stores") + '</button>';
     }).join("");
     var selects = FILTERS.map(function (f) {
-      return '<select class="f" data-f="' + f[0] + '" aria-label="' + esc(f[2]) + '"><option value="">' + esc(f[2]) + ': all</option>' +
+      return '<select class="f" data-f="' + f[0] + '" aria-label="' + esc(f[2]) + '"><option value="">' + esc(f[2]) + '</option>' +
         optionList(f[1]).map(function (v) { return '<option' + (q[f[0]] === v ? " selected" : "") + '>' + esc(v) + '</option>'; }).join("") + '</select>';
     }).join("");
     app.innerHTML =
-      '<div class="page-head"><div><div class="eyebrow">2027 video idea catalog</div><h1>Pick a video to record</h1>' +
-      '<p>Browse ' + ideas.length + ' ready-to-film ideas for every Johnny K\'s showroom. Open an idea to see the hook, the questions you\'ll answer, and the shots. When you find one you like, hit <strong>I want to record this</strong>.</p></div></div>' +
-      '<div class="stats"><div class="stat card"><div class="num">' + ideas.length + '</div><div class="lbl">Video ideas</div></div>' +
-      '<div class="stat card"><div class="num">' + open + '</div><div class="lbl">Open to record</div></div>' +
-      '<div class="stat card"><div class="num">' + Math.round(ps / ideas.length * 100) + '%</div><div class="lbl">Parts &amp; Service ideas</div></div>' +
-      '<div class="stat card"><div class="num">' + ideas.filter(function (i) { return i.Difficulty === "Easy"; }).length + '</div><div class="lbl">Rated “Easy”</div></div></div>' +
-      '<div class="filters card no-print">' +
+      '<div class="cat-hero"><div><h1>Pick a video to record</h1>' +
+      '<p>Find an idea, open it to see the hook and the shots, then tap <strong>I want to record this</strong>.</p></div>' +
+      '<button class="btn btn-dark hero-idea" data-idea-btn>💡 I have an idea</button></div>' +
+      '<div class="filters no-print">' +
       '<div class="store-tabs">' + storeTabs + '</div>' +
-      '<div class="filter-row"><div class="search"><input id="q" type="search" placeholder="Search ideas, machines, hooks… (e.g. Sea-Doo, winter, helmet)" value="' + esc(q.q || "") + '" aria-label="Search ideas"></div>' +
-      '<select class="f" data-f="avail" aria-label="Availability"><option value="">Hide dropped</option><option value="open"' + (q.avail === "open" ? " selected" : "") + '>Open to record only</option><option value="taken"' + (q.avail === "taken" ? " selected" : "") + '>Already scheduled / in progress</option><option value="all"' + (q.avail === "all" ? " selected" : "") + '>Show everything</option></select>' +
-      '<select class="f" data-f="sort" aria-label="Sort"><option value="">Sort: by ID</option><option value="prio"' + (q.sort === "prio" ? " selected" : "") + '>Priority first</option><option value="easy"' + (q.sort === "easy" ? " selected" : "") + '>Easiest first</option><option value="short"' + (q.sort === "short" ? " selected" : "") + '>Quickest to film</option></select></div>' +
-      '<div class="filter-row">' + selects +
-      (q.store && q.store !== "Company-wide" ? '<label class="check"><input type="checkbox" id="localOnly"' + (q.local === "1" ? " checked" : "") + '> Only ' + esc(q.store) + '’s own ideas</label>' : "") + '</div></div>' +
-      '<div class="result-bar"><strong id="count"></strong><span><button class="btn btn-sm" id="copyView">🔗 Copy link to this view</button> <button class="btn btn-sm btn-ghost" id="clearF">Clear filters</button></span></div>' +
+      '<div class="filter-row"><div class="search"><input id="q" type="search" placeholder="Search ideas or machines (e.g. Sea-Doo, winter, helmet)" value="' + esc(q.q || "") + '" aria-label="Search ideas"></div>' + selects +
+      '<select class="f" data-f="avail" aria-label="Availability"><option value="">Status: all</option><option value="open"' + (q.avail === "open" ? " selected" : "") + '>Open to record only</option><option value="taken"' + (q.avail === "taken" ? " selected" : "") + '>Already scheduled</option><option value="all"' + (q.avail === "all" ? " selected" : "") + '>Everything</option></select></div>' +
+      (q.store && q.store !== "Company-wide" ? '<label class="check"><input type="checkbox" id="localOnly"' + (q.local === "1" ? " checked" : "") + '> Only ' + esc(q.store) + '’s own ideas (hide company-wide)</label>' : "") + '</div>' +
+      '<div class="result-bar"><strong id="count"></strong><span><button class="btn btn-sm btn-ghost" id="copyView">🔗 Copy link to this view</button><button class="btn btn-sm btn-ghost" id="clearF">Clear</button></span></div>' +
       '<div class="ideas" id="grid"></div>';
 
     function render() {
@@ -227,12 +285,13 @@
 
   function printCard(i) {
     function row(k, v) { return '<div class="pc-row"><div class="pc-k">' + esc(k) + '</div><div class="pc-v">' + esc(v || "") + '</div></div>'; }
-    var showroom = i.Scope === "Universal" ? "Universal (compatible: " + i["Compatible Showrooms"] + ")" : i.Showroom;
+    var showroom = suggested(i) + (i.Scope === "Universal" ? "  (also works at: " + i["Compatible Showrooms"] + ")" : "");
+    var camName = store.get("cam", {})[i.ID] || i["Scheduled Talent"] || "";
     var checks = ["Talent confirmed and briefed with 'Explain Video'", "Machine/product on site, clean, correct model verified", "Props gathered (see Prep / Props)", "Releases signed for any customer or minor on camera", "Batteries charged, storage cleared, lav mic tested", "All 5 key film shots captured + B-roll", "Hook recorded 2–3 ways", "Footage logged in FOOTAGE sheet with file location"];
     return '<div class="print-card"><div class="pc"><div class="pc-title">' + esc(i.ID + "  —  " + i.Title) + '</div>' +
       row("The idea", i["The Idea"]) + row("Target time", i["Target Time"]) + row("Opening hook", i["Opening Hook"]) + row("Ask the talent", i["Ask the Talent"]) +
       row("Key film shots", i["Key Film Shots"]) + row("Make it funny", i["Make It Funny"]) + row("Editing notes", i["Editing Notes"]) + row("On-screen words", i["On-Screen Words"]) +
-      row("CTA", i.CTA) + row("Suggested area", i["Suggested Showroom Area"]) + row("Showroom", showroom) + row("Talent", i.Talent) + row("Machine", i["Machine / Product"]) +
+      row("CTA", i.CTA) + row("Suggested area", i["Suggested Showroom Area"]) + row("Suggested showroom", showroom) + row("Who's on camera", camName ? camName + "  (" + i.Talent + ")" : "________________________  (suggested: " + i.Talent + ")") + row("Machine", i["Machine / Product"]) +
       row("Filming date", i["Planned Film Date"] ? fmtDate(i["Planned Film Date"]) : "") + row("Explain video", i["Explain Video"]) + row("Prep / props", i["Prep / Props"]) + row("Caption idea", i["Caption Idea"]) +
       '</div><div class="pc" style="break-before:page"><div class="pc-title">' + esc(i.ID + "  —  Production details") + '</div>' +
       row("Department", i.Department) + row("Content pillar", i["Content Pillar"]) + row("Target audience", i.Audience) + row("Audience insight", i["Audience Insight"]) +
@@ -283,12 +342,16 @@
       '<span style="float:right">' + (prev ? '<a href="#/idea/' + esc(prev.ID) + '">‹ ' + esc(prev.ID) + '</a>' : "") + (next ? ' &nbsp; <a href="#/idea/' + esc(next.ID) + '">' + esc(next.ID) + ' ›</a>' : "") + '</span></div>' +
       '<div class="no-print">' +
       '<div class="detail-head card"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="idea-id">' + esc(i.ID) + '</span><span class="badge ' + a.cls + '">' + esc(a.label) + '</span>' +
-      '<span class="chip chip-dark">' + esc(storeLabel(i)) + '</span><span class="chip chip-red">' + esc(i.Department) + '</span><span class="chip">' + esc(i["Content Pillar"]) + '</span><span class="chip">' + esc(i.Priority) + ' priority</span></div>' +
+      '<span class="chip chip-red">' + esc(i.Department) + '</span><span class="chip">' + esc(i["Content Pillar"]) + '</span></div>' +
       '<h1>' + esc(i.Title) + '</h1>' +
       '<div class="detail-actions"><button class="btn btn-primary" id="reqBtn">🎬 I want to record this</button><button class="pick-btn btn" data-pick="' + esc(i.ID) + '"></button>' +
       '<button class="btn" id="printBtn">🖨 Print idea card</button><button class="btn" id="linkBtn">🔗 Copy link</button></div>' +
-      '<div class="facts">' + fact("Who's on camera", i.Talent) + fact("Where", i["Suggested Showroom Area"]) + fact("Machine / product", i["Machine / Product"]) + fact("Difficulty", i.Difficulty) +
-      fact("Film time", "~" + i["Est. Film Min"] + " min") + fact("Video length", i["Target Time"]) + fact("Format", i["Aspect Ratio"]) + fact("Season", i.Season + " • " + i.Timing) + '</div></div>' +
+      '<div class="facts">' +
+      '<div class="fact fact-wide"><label class="k" for="camIn">Who\'s on camera</label>' + (i["Scheduled Talent"] ? '<div class="v">' + esc(i["Scheduled Talent"]) + ' <span class="muted small">(scheduled)</span></div>'
+        : '<input class="cam-input" id="camIn" placeholder="Type your name" value="' + esc(store.get("cam", {})[i.ID] || "") + '"><div class="muted small">Suggested: ' + esc(i.Talent) + '</div>') + '</div>' +
+      '<div class="fact fact-wide"><div class="k">Suggested showroom</div><div class="v">📍 ' + esc(suggested(i)) + '</div>' + (suggestWhy(i) ? '<div class="muted small">' + esc(suggestWhy(i)) + '</div>' : (i.Scope === "Universal" ? "" : '<div class="muted small">This store\'s own idea</div>')) + '</div>' +
+      fact("Filming spot", i["Suggested Showroom Area"]) + fact("Machine / product", i["Machine / Product"]) + fact("Difficulty", i.Difficulty) +
+      fact("Film time", "~" + i["Est. Film Min"] + " min") + fact("Video length", i["Target Time"]) + fact("Format", i["Aspect Ratio"]) + fact("Season", i.Season + " • " + i.Timing).replace('class="fact"', 'class="fact fact-wide"') + '</div></div>' +
 
       '<div class="detail-grid"><div>' +
       '<section class="panel card"><h3><span class="n">1</span>The idea</h3>' + field("What it is", i["The Idea"], "big") +
@@ -303,14 +366,14 @@
       field("Audio & music", i["Audio & Music"]) + field("Captions / subtitles", i["Captions / Subtitles"]) + field("On-screen words", i["On-Screen Words"]) + field("Call to action", i.CTA) +
       field("Caption idea", i["Caption Idea"]) + field("Hashtags", i.Hashtags) + field("Branding / end card", i["Branding / End Card"]) + field("Repurposing", i.Repurposing) + field("Localization", i["Localization Notes"]) + '</section>' +
 
-      '<details class="panel card" id="cbPanel"><summary><h3 style="margin:0"><span class="n">5</span>Cardboard AI editing prompt</h3></summary><div style="margin-top:12px" class="form-grid">' +
+      (!isOwner() ? "" : '<details class="panel card" id="cbPanel"><summary><h3 style="margin:0"><span class="n">5</span>Cardboard AI editing prompt</h3></summary><div style="margin-top:12px" class="form-grid">' +
       '<p class="muted small" style="margin:0">Fill in what you have, then copy the prompt into Cardboard and upload your clips there.</p>' +
       '<label>Uploaded file names<input class="f" data-cb="files"></label><label>Best moments / timecodes<input class="f" data-cb="best"></label><label>Do NOT use / cut out<input class="f" data-cb="dont"></label>' +
       '<label>Verified product details or approved offer (optional)<input class="f" data-cb="specs"></label><label>Required disclaimer (optional)<input class="f" data-cb="disc"></label>' +
-      '<textarea class="prompt-box" id="cbOut" readonly></textarea><div><button class="btn btn-dark" id="cbCopy">Copy prompt</button></div></div></details>' +
+      '<textarea class="prompt-box" id="cbOut" readonly></textarea><div><button class="btn btn-dark" id="cbCopy">Copy prompt</button></div><p class="muted small" style="margin:0">🔒 Only you can see this section.</p></div></details>') +
       '</div><aside>' +
       '<section class="panel card"><h3>Strategy</h3><dl class="kv"><dt>Audience</dt><dd>' + esc(i.Audience) + '</dd><dt>Insight</dt><dd>' + esc(i["Audience Insight"]) + '</dd><dt>Objective</dt><dd>' + esc(i.Objective) +
-      '</dd><dt>Platforms</dt><dd>' + esc(i.Platforms) + '</dd><dt>Showrooms</dt><dd>' + esc(i["Compatible Showrooms"]) + '</dd></dl></section>' +
+      '</dd><dt>Platforms</dt><dd>' + esc(i.Platforms) + '</dd><dt>' + (i.Scope === "Universal" ? "Also works at" : "Store") + '</dt><dd>' + esc(i["Compatible Showrooms"]) + '</dd></dl></section>' +
       '<section class="panel card"><h3>Before you post</h3><div class="callout">' + esc(i["Verify Before Posting"]) + '</div></section>' +
       '<section class="panel card"><h3>Production status</h3>' + (stat.length ? '<dl class="kv">' + stat.map(function (p) { return "<dt>" + esc(p[0]) + "</dt><dd>" + esc(p[1]) + "</dd>"; }).join("") + '</dl>' : '<p class="muted small">Not started yet.</p>') + '</section>' +
       (info ? '<section class="panel card"><h3>' + esc(info.Showroom) + ' store</h3><dl class="kv"><dt>Address</dt><dd>' + esc(info.Address) + '</dd><dt>Phone</dt><dd>' + esc(info.Phone) + '</dd><dt>Hours</dt><dd>' + esc(info.Hours) + '</dd></dl></section>' : "") +
@@ -322,6 +385,9 @@
     $("#printBtn").onclick = function () { window.print(); };
     $("#linkBtn").onclick = function () { copyText(location.href.split("#")[0] + "#/idea/" + i.ID, "Link copied"); };
     var x = {};
+    var ci = $("#camIn");
+    if (ci) ci.oninput = function () { var m = store.get("cam", {}); if (ci.value.trim()) m[i.ID] = ci.value.trim(); else delete m[i.ID]; store.set("cam", m); var pc = $(".print-only"); if (pc) pc.innerHTML = printCard(i); };
+    if (!$("#cbOut")) return;
     function upd() { $$("[data-cb]").forEach(function (el) { x[el.getAttribute("data-cb")] = el.value.trim(); }); $("#cbOut").value = cardboardPrompt(i, x); }
     $$("[data-cb]").forEach(function (el) { el.oninput = upd; }); upd();
     $("#cbCopy").onclick = function () { copyText($("#cbOut").value, "Prompt copied — paste it into Cardboard"); };
@@ -572,7 +638,8 @@
       '<li><span><strong>Open the Idea Catalog</strong> and tap your showroom. Company-wide ideas that fit your store are included.</span></li>' +
       '<li><span><strong>Filter</strong> by your department (Sales, Parts, Service) or search for a machine you know well.</span></li>' +
       '<li><span><strong>Open an idea</strong> to read the hook, the questions you\'ll answer, and the shots. Look for the green “Open to record” badge.</span></li>' +
-      '<li><span><strong>Tap “I want to record this.”</strong> Add your name and when you\'re free, then send the email. ' + esc(C.contactName || "Marketing") + ' will confirm a filming date.</span></li></ol></div>' +
+      '<li><span><strong>Tap “I want to record this.”</strong> Add your name and when you\'re free, then send the email. ' + esc(C.contactName || "Marketing") + ' will confirm a filming date.</span></li>' +
+      '<li><span><strong>Got your own idea?</strong> Tap <a href="#" data-idea-btn>💡 I have an idea</a> at the top of any page and send it in.</span></li></ol></div>' +
       '<div class="card panel"><h3>For managers</h3><ol class="steps">' +
       '<li><span><strong>Dashboard</strong> shows ideas per store, the Parts + Service share, the production pipeline and post performance.</span></li>' +
       '<li><span><strong>2027 Campaigns</strong> shows the planned campaigns on a timeline, what\'s scheduled each month, and the full campaign idea library.</span></li>' +
@@ -588,10 +655,123 @@
       (D.groundRules && D.groundRules.length ? '<div class="section"><h2>Ground rules</h2><div class="card panel"><ul class="rules">' + D.groundRules.map(function (g) { return "<li>" + esc(g) + "</li>"; }).join("") + '</ul></div></div>' : "");
   }
 
+  /* ================= OWNER SIGN-IN ================= */
+  function viewOwner() {
+    setActive("");
+    if (isOwner()) {
+      app.innerHTML = '<div class="narrow card panel"><div class="eyebrow">Owner</div><h1>You\'re signed in</h1><p>On this device you can see the <strong>Cardboard AI prompt</strong> on every idea and your <strong>Brain Dump</strong>.</p>' +
+        (C.ownerPasscodeHash ? "" : '<p class="callout small">Your passcode isn\'t saved in <code>js/config.js</code> yet, so this sign-in only works on this device until you add it. Set it up again below to get the line to paste.</p>') +
+        '<div class="detail-actions"><a class="btn btn-primary" href="#/brain">🧠 Open Brain Dump</a><button class="btn" id="signOut">Sign out</button>' + (C.ownerPasscodeHash ? "" : '<button class="btn" id="redo">Set up passcode</button>') + '</div></div>';
+      $("#signOut").onclick = function () { store.set("owner", ""); applyOwner(); toast("Signed out"); viewOwner(); };
+      var rd = $("#redo"); if (rd) rd.onclick = function () { store.set("owner", ""); applyOwner(); viewOwner(); };
+      return;
+    }
+    if (!C.ownerPasscodeHash) {
+      app.innerHTML = '<div class="narrow card panel"><div class="eyebrow">Owner • one-time setup</div><h1>Create your passcode</h1>' +
+        '<p>This passcode opens the owner-only sections (Cardboard prompts and Brain Dump). Pick something only you know.</p>' +
+        '<form class="form-grid" id="setForm"><label>New passcode<input class="f" type="password" name="a" required minlength="6" autocomplete="new-password"></label><label>Type it again<input class="f" type="password" name="b" required autocomplete="new-password"></label><div><button class="btn btn-primary">Create</button></div></form><div id="setOut"></div></div>';
+      $("#setForm").onsubmit = function (e) {
+        e.preventDefault();
+        var a = this.elements.a.value, b = this.elements.b.value;
+        if (a !== b) { toast("The two passcodes don't match"); return; }
+        var h = hashPass(a), line = 'ownerPasscodeHash: "' + h + '",';
+        store.set("owner", "pending:" + h); applyOwner();
+        $("#setOut").innerHTML = '<div class="section"><h3>Last step: save it to the site</h3><ol class="steps" style="margin-top:10px">' +
+          '<li><span>On GitHub, open <strong>js/config.js</strong> and click the pencil (Edit).</span></li>' +
+          '<li><span>Paste this line on its own line, right under the <code>contactEmail</code> line. If there\'s already an <code>ownerPasscodeHash</code> line, replace it:<br><code class="code-line" id="hashLine">' + esc(line) + '</code><br><button class="btn btn-sm" id="copyHash" type="button" style="margin-top:6px">Copy line</button></span></li>' +
+          '<li><span>Click <strong>Commit changes</strong>. After about a minute, your passcode works on any device: phone, laptop, work computer.</span></li></ol>' +
+          '<p class="muted small">You\'re signed in on this device now. The line is scrambled, so your actual passcode never goes on GitHub.</p></div>';
+        $("#copyHash").onclick = function () { copyText(line, "Line copied"); };
+      };
+      return;
+    }
+    app.innerHTML = '<div class="narrow card panel"><div class="eyebrow">Owner</div><h1>Sign in</h1><p class="muted">For the site owner only.</p>' +
+      '<form class="form-grid" id="inForm"><label>Passcode<input class="f" type="password" name="p" required autocomplete="current-password"></label><div><button class="btn btn-primary">Sign in</button></div></form></div>';
+    $("#inForm").onsubmit = function (e) {
+      e.preventDefault();
+      if (hashPass(this.elements.p.value) === C.ownerPasscodeHash) { store.set("owner", C.ownerPasscodeHash); applyOwner(); toast("Signed in"); location.hash = "#/brain"; }
+      else { toast("That passcode isn't right"); this.elements.p.value = ""; }
+    };
+  }
+
+  /* ================= BRAIN DUMP (owner only, saved in this browser) ================= */
+  var BD_TAGS = ["Video idea", "Campaign", "To-do", "Talent", "Note"];
+  function viewBrain(r) {
+    setActive("brain");
+    if (!isOwner()) { location.replace("#/owner"); return; }
+    var notes = store.get("brain", []), q = { text: "", tag: "", done: false }, editing = null;
+    function save() { store.set("brain", notes); }
+    function stamp(t) { var d = new Date(t); return MONTHS[d.getMonth()] + " " + d.getDate() + ", " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+    function tagOpts(sel, all) { return (all ? '<option value="">All</option>' : "") + BD_TAGS.map(function (t) { return '<option' + (t === sel ? " selected" : "") + '>' + t + '</option>'; }).join(""); }
+
+    app.innerHTML = '<div class="page-head"><div><div class="eyebrow">🔒 Only you can see this</div><h1>Brain Dump</h1><p>Get it out of your head: video ideas, campaign thoughts, to-dos, talent notes. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd> to save.</p></div>' +
+      '<div class="detail-actions"><button class="btn btn-sm" id="bdExport">⬇ Back up</button><label class="btn btn-sm" style="cursor:pointer">⬆ Restore<input type="file" id="bdImport" accept=".json" hidden></label><button class="btn btn-sm" id="bdCopy">Copy all as text</button></div></div>' +
+      '<div class="card panel bd-compose"><textarea class="f" id="bdText" rows="3" placeholder="What\'s on your mind?"></textarea>' +
+      '<div class="filter-row"><select class="f" id="bdTag" style="flex:0 0 auto">' + tagOpts("Video idea") + '</select><input class="f" id="bdLink" placeholder="Related idea ID (optional), e.g. V-LOD-014" list="bdIds" style="flex:1 1 220px"><datalist id="bdIds">' + ideas.map(function (i) { return '<option value="' + esc(i.ID) + '">' + esc(i.Title) + '</option>'; }).join("") + '</datalist><button class="btn btn-primary" id="bdAdd">Save</button></div></div>' +
+      '<div class="filter-row" style="margin:16px 0 10px"><div class="search"><input id="bdQ" type="search" placeholder="Search your notes"></div><select class="f" id="bdF" style="flex:0 0 auto">' + tagOpts("", true) + '</select><label class="check"><input type="checkbox" id="bdDone"> Show done</label></div>' +
+      '<div id="bdList" class="bd-list"></div>' +
+      '<p class="muted small" style="margin-top:18px">Notes are saved in this browser on this device only. They never go to GitHub and nobody else can see them. Use <strong>Back up</strong> now and then, and <strong>Restore</strong> to move them to another computer.</p>';
+
+    function render() {
+      var term = q.text.toLowerCase();
+      var list = notes.filter(function (n) { return (q.done || !n.done) && (!q.tag || n.tag === q.tag) && (!term || (n.text + " " + (n.link || "")).toLowerCase().indexOf(term) >= 0); })
+        .sort(function (a, b) { return (b.pin ? 1 : 0) - (a.pin ? 1 : 0) || b.t - a.t; });
+      $("#bdList").innerHTML = list.length ? list.map(function (n) {
+        var linked = n.link && byId[n.link];
+        if (editing === n.id) return '<div class="card bd-note"><textarea class="f" id="bdEditText" rows="4">' + esc(n.text) + '</textarea><div class="filter-row" style="margin-top:8px"><select class="f" id="bdEditTag" style="flex:0 0 auto">' + tagOpts(n.tag) + '</select><button class="btn btn-sm btn-primary" data-bd="saveEdit" data-id="' + n.id + '">Save</button><button class="btn btn-sm btn-ghost" data-bd="cancel" data-id="' + n.id + '">Cancel</button></div></div>';
+        return '<div class="card bd-note' + (n.done ? " done" : "") + (n.pin ? " pinned" : "") + '"><div class="bd-meta"><span class="chip chip-red">' + esc(n.tag) + '</span>' + (n.pin ? '<span class="chip chip-dark">📌 Pinned</span>' : "") +
+          (linked ? '<a class="chip" href="#/idea/' + esc(n.link) + '">' + esc(n.link) + ' · ' + esc(linked.Title) + '</a>' : (n.link ? '<span class="chip">' + esc(n.link) + '</span>' : "")) + '<span class="muted small">' + stamp(n.t) + '</span></div>' +
+          '<div class="bd-text">' + esc(n.text) + '</div><div class="bd-actions">' +
+          '<button class="btn btn-sm btn-ghost" data-bd="done" data-id="' + n.id + '">' + (n.done ? "↺ Not done" : "✓ Done") + '</button><button class="btn btn-sm btn-ghost" data-bd="pin" data-id="' + n.id + '">' + (n.pin ? "Unpin" : "📌 Pin") + '</button>' +
+          '<button class="btn btn-sm btn-ghost" data-bd="edit" data-id="' + n.id + '">Edit</button><button class="btn btn-sm btn-ghost" data-bd="del" data-id="' + n.id + '">Delete</button></div></div>';
+      }).join("") : '<div class="empty card">' + (notes.length ? "Nothing matches." : "Nothing here yet. Your first thought goes in the box above.") + '</div>';
+      var ta = $("#bdEditText"); if (ta) ta.focus();
+    }
+    function add() {
+      var t = $("#bdText").value.trim(); if (!t) return;
+      notes.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t: Date.now(), text: t, tag: $("#bdTag").value, link: $("#bdLink").value.trim().toUpperCase(), pin: false, done: false });
+      save(); $("#bdText").value = ""; $("#bdLink").value = ""; render(); $("#bdText").focus(); toast("Saved");
+    }
+    $("#bdAdd").onclick = add;
+    $("#bdText").onkeydown = function (e) { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) add(); };
+    $("#bdQ").oninput = function () { q.text = this.value; render(); };
+    $("#bdF").onchange = function () { q.tag = this.value; render(); };
+    $("#bdDone").onchange = function () { q.done = this.checked; render(); };
+    $("#bdList").onclick = function (e) {
+      var b = e.target.closest("[data-bd]"); if (!b) return;
+      var id = b.getAttribute("data-id"), n = notes.filter(function (x) { return x.id === id; })[0], act = b.getAttribute("data-bd"); if (!n) return;
+      if (act === "done") n.done = !n.done;
+      else if (act === "pin") n.pin = !n.pin;
+      else if (act === "edit") editing = id;
+      else if (act === "cancel") editing = null;
+      else if (act === "saveEdit") { var v = $("#bdEditText").value.trim(); if (v) { n.text = v; n.tag = $("#bdEditTag").value; } editing = null; }
+      else if (act === "del") { if (!b.dataset.sure) { b.dataset.sure = "1"; b.textContent = "Click again to delete"; return; } notes = notes.filter(function (x) { return x.id !== id; }); }
+      save(); render();
+    };
+    $("#bdExport").onclick = function () {
+      var blob = new Blob([JSON.stringify({ app: "jkps-brain-dump", saved: new Date().toISOString(), notes: notes }, null, 2)], { type: "application/json" });
+      var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "brain-dump-" + new Date().toISOString().slice(0, 10) + ".json"; document.body.appendChild(a); a.click(); a.remove();
+    };
+    $("#bdImport").onchange = function () {
+      var f = this.files[0]; if (!f) return; var fr = new FileReader();
+      fr.onload = function () {
+        try { var d = JSON.parse(fr.result), inc = Array.isArray(d) ? d : d.notes; if (!Array.isArray(inc)) throw 0;
+          var have = {}; notes.forEach(function (n) { have[n.id] = 1; }); var added = 0;
+          inc.forEach(function (n) { if (n && n.id && n.text && !have[n.id]) { notes.push(n); added++; } });
+          save(); render(); toast("Restored " + added + " note" + (added === 1 ? "" : "s"));
+        } catch (e) { toast("That file isn't a Brain Dump backup"); }
+      };
+      fr.readAsText(f); this.value = "";
+    };
+    $("#bdCopy").onclick = function () { copyText(notes.filter(function (n) { return !n.done; }).map(function (n) { return "[" + n.tag + "] " + n.text + (n.link ? " (" + n.link + ")" : ""); }).join("\n\n") || "(empty)", "Copied"); };
+    render();
+  }
+
   /* ---------------- boot ---------------- */
   if (C.siteTitle) { $("#siteTitle").textContent = C.siteTitle; document.title = C.siteTitle; }
   if (C.siteSubtitle) $("#siteSub").textContent = C.siteSubtitle;
   $("#dataStamp").textContent = "Content updated " + fmtDate((D.generated || "").slice(0, 10)) + " • " + ideas.length + " ideas";
   savePicks();
+  applyOwner();
   route();
 })();
